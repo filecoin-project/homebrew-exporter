@@ -1,21 +1,38 @@
 package main
 
 import (
-	"flag"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-var (
-    listenAddress = flag.String("web.listen-address", ":9888", "Address to listen on for web interface.")
-    metricPath    = flag.String("web.metrics-path", "/metrics", "Path under which to expose metrics.")
-)
+type HomebrewMetricsItem struct {
+  number int `json:"number"`
+  formula string `json:"formula"`
+  count string `json:"count"`
+  percent string `json:"percent"`
+}
 
-type homebrewCollector struct {
+type HomebrewMetrics struct {
+  category string `json:"category"`
+  totalItems int `json:"total_items"`
+  startDate string `json:"start_date"`
+  endDate string `json:"end_date"`
+  totalCount int `json:"total_count"`
+  items	[]HomebrewMetricsItem `json:"items"`
+}
+
+type HomebrewCollector struct {
+  formulae []string
   install30d *prometheus.Desc
   install90d *prometheus.Desc
   install365d *prometheus.Desc
@@ -27,48 +44,49 @@ type homebrewCollector struct {
   buildError365d *prometheus.Desc
 }
 
-func newHomebrewCollector() *homebrewCollector {
-  return &homebrewCollector{
-    install30d: prometheus.NewDesc("homebrew.install.30d",
+func newHomebrewCollector(formulae []string) *HomebrewCollector {
+  return &HomebrewCollector{
+		formulae: formulae,
+    install30d: prometheus.NewDesc("homebrew_install_30d",
       "Results from https://formulae.brew.sh/api/analytics/install/30d.json",
-      nil, nil,
+      []string{"formula"}, nil,
     ),
-    install90d: prometheus.NewDesc("homebrew.install.90d",
+    install90d: prometheus.NewDesc("homebrew_install_90d",
       "Results from https://formulae.brew.sh/api/analytics/install/90d.json",
-      nil, nil,
+      []string{"formula"}, nil,
     ),
-    install365d: prometheus.NewDesc("homebrew.install.365d",
+    install365d: prometheus.NewDesc("homebrew_install_365d",
       "Results from https://formulae.brew.sh/api/analytics/install/365d.json",
-      nil, nil,
+      []string{"formula"}, nil,
     ),
-    installOnRequest30d: prometheus.NewDesc("homebrew.install_on_request.30d",
+    installOnRequest30d: prometheus.NewDesc("homebrew_install_on_request_30d",
       "Results from https://formulae.brew.sh/api/analytics/install-on-request/30d.json",
-      nil, nil,
+      []string{"formula"}, nil,
     ),
-    installOnRequest90d: prometheus.NewDesc("homebrew.install_on_request.90d",
+    installOnRequest90d: prometheus.NewDesc("homebrew_install_on_request_90d",
       "Results from https://formulae.brew.sh/api/analytics/install-on-request/90d.json",
-      nil, nil,
+      []string{"formula"}, nil,
     ),
-    installOnRequest365d: prometheus.NewDesc("homebrew.install_on_request.365d",
+    installOnRequest365d: prometheus.NewDesc("homebrew_install_on_request_365d",
       "Results from https://formulae.brew.sh/api/analytics/install-on-request/365d.json",
-      nil, nil,
+      []string{"formula"}, nil,
     ),
-    buildError30d: prometheus.NewDesc("homebrew.build_error.30d",
+    buildError30d: prometheus.NewDesc("homebrew_build_error_30d",
       "Results from https://formulae.brew.sh/api/analytics/build-error/30d.json",
-      nil, nil,
+      []string{"formula"}, nil,
     ),
-    buildError90d: prometheus.NewDesc("homebrew.build_error.90d",
+    buildError90d: prometheus.NewDesc("homebrew_build_error_90d",
       "Results from https://formulae.brew.sh/api/analytics/build-error/90d.json",
-      nil, nil,
+      []string{"formula"}, nil,
     ),
-    buildError365d: prometheus.NewDesc("homebrew.build_error.365d",
+    buildError365d: prometheus.NewDesc("homebrew_build_error_365d",
       "Results from https://formulae.brew.sh/api/analytics/build-error/365d.json",
-      nil, nil,
+      []string{"formula"}, nil,
     ),
   }
 }
 
-func (collector *homebrewCollector) Describe(ch chan<- *prometheus.Desc) {
+func (collector *HomebrewCollector) Describe(ch chan<- *prometheus.Desc) {
 
   //Update this section with the each metric you create for a given collector
   ch <- collector.install30d
@@ -82,31 +100,56 @@ func (collector *homebrewCollector) Describe(ch chan<- *prometheus.Desc) {
   ch <- collector.buildError365d
 }
 
-func (collector *homebrewCollector) Collect(ch chan<- prometheus.Metric) {
+func (collector *HomebrewCollector) collectMetric(url string, metric *prometheus.Desc, ch chan<- prometheus.Metric) {
+	var homebrewMetrics HomebrewMetrics
+  resp, err := http.Get(url)
+  if err != nil { panic(err) }
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil { panic(err) }
+	json.Unmarshal([]byte(body), &homebrewMetrics)
 
-  // get homebrew metrics via http request
+  endDate, err := time.Parse("2021-01-06", homebrewMetrics.endDate )
+  if err != nil { panic(err) }
 
-  //Write latest value for each metric in the prometheus metric channel.
-  //Note that you can pass CounterValue, GaugeValue, or UntypedValue types here.
-  m1 := prometheus.MustNewConstMetric(collector.install30d, prometheus.GaugeValue, metricValue)
-  m2 := prometheus.MustNewConstMetric(collector.installOnRequest90d, prometheus.GaugeValue, metricValue)
-  m2 := prometheus.MustNewConstMetric(collector.installOnRequest90d, prometheus.GaugeValue, metricValue)
-  m1 = prometheus.NewMetricWithTimestamp(time.Now().Add(-time.Hour), m1)
-  m2 = prometheus.NewMetricWithTimestamp(time.Now(), m2)
-  ch <- m1
-  ch <- m2
+  for _, formula := range collector.formulae {
+		for _, item := range homebrewMetrics.items {
+			if (item.formula == formula) {
+				value, err := strconv.ParseFloat(item.count, 32)
+				if err != nil { panic(err) }
+  			m := prometheus.MustNewConstMetric(metric, prometheus.GaugeValue, value, item.formula)
+  			m = prometheus.NewMetricWithTimestamp(endDate, m)
+  			ch <- m
+			}
+		}
+	}
 }
+
+func (collector *HomebrewCollector) Collect(ch chan<- prometheus.Metric) {
+	collector.collectMetric("https://formulae.brew.sh/api/analytics/install/30d.json", collector.install30d, ch)
+	collector.collectMetric("https://formulae.brew.sh/api/analytics/install/90d.json", collector.install90d, ch)
+	collector.collectMetric("https://formulae.brew.sh/api/analytics/install/365d.json", collector.install365d, ch)
+	collector.collectMetric("https://formulae.brew.sh/api/analytics/install-on-request/30d.json", collector.installOnRequest30d, ch)
+	collector.collectMetric("https://formulae.brew.sh/api/analytics/install-on-request/90d.json", collector.installOnRequest90d, ch)
+	collector.collectMetric("https://formulae.brew.sh/api/analytics/install-on-request/365d.json", collector.installOnRequest365d, ch)
+	collector.collectMetric("https://formulae.brew.sh/api/analytics/build-error/30d.json", collector.buildError30d, ch)
+	collector.collectMetric("https://formulae.brew.sh/api/analytics/build-error/90d.json", collector.buildError90d, ch)
+	collector.collectMetric("https://formulae.brew.sh/api/analytics/build-error/365d.json", collector.buildError365d, ch)
+  }
 
 func main() {
-  http.Handle("/console/metrics", promhttp.Handler())
-  log.Fatal(http.ListenAndServe(":9101", nil))
-
-
-    log.Fatal(homebrewExporter(*listenAddress, *metricPath))
+	listenPort := os.Getenv("LISTEN_PORT")
+	if listenPort == "" { listenPort = "9888" }
+	metricsPath := os.Getenv("METRICS_PATH")
+	if metricsPath == "" { metricsPath= "/metrics" }
+	formulaeString := os.Getenv("HOMEBREW_FORMULAE")
+	if formulaeString != "" {
+		formulae := strings.Split(formulaeString, ", ")
+  	log.Fatal(homebrewExporter(listenPort, metricsPath, formulae))
+	}
 }
 
-func homebrewExporter(listenAddress, metricsPath string) error {
-  homebrew := newHomebrewCollector()
+func homebrewExporter(listenPort string, metricsPath string, formulae []string) error {
+  homebrew := newHomebrewCollector(formulae)
   prometheus.MustRegister(homebrew)
 
     http.Handle(metricsPath, promhttp.Handler())
@@ -122,5 +165,5 @@ func homebrewExporter(listenAddress, metricsPath string) error {
         `))
     })
 
-    return http.ListenAndServe(listenAddress, nil)
+  return http.ListenAndServe(fmt.Sprintf(":%s", listenPort), nil)
 }
