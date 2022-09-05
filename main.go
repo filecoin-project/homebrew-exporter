@@ -111,7 +111,8 @@ func (collector *HomebrewCollector) collectMetric(url string, metric *prometheus
   if err != nil { panic(err) }
   json.Unmarshal(body, &homebrewMetrics)
   fmt.Printf("%s", body)
-  endDate, err := time.Parse("2021-01-06", homebrewMetrics.EndDate)
+  layout := "2006-01-02"
+  endDate, err := time.Parse(layout, homebrewMetrics.EndDate)
   if err != nil { panic(err) }
 
   for _, formula := range collector.formulae {
