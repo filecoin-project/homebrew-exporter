@@ -32,7 +32,7 @@ type HomebrewMetrics struct {
 }
 
 type HomebrewCollector struct {
-  formulae []string
+  Formulae []string
   install30d *prometheus.Desc
   install90d *prometheus.Desc
   install365d *prometheus.Desc
@@ -46,7 +46,7 @@ type HomebrewCollector struct {
 
 func newHomebrewCollector(formulae []string) *HomebrewCollector {
   return &HomebrewCollector{
-    formulae: formulae,
+    Formulae: formulae,
     install30d: prometheus.NewDesc("homebrew_install_30d",
       "Results from https://formulae.brew.sh/api/analytics/install/30d.json",
       []string{"formula"}, nil,
@@ -110,17 +110,17 @@ func (collector *HomebrewCollector) collectMetric(url string, metric *prometheus
   body, err := ioutil.ReadAll(res.Body)
   if err != nil { panic(err) }
   json.Unmarshal(body, &homebrewMetrics)
-  fmt.Printf("%s", body)
   layout := "2006-01-02"
   endDate, err := time.Parse(layout, homebrewMetrics.EndDate)
   if err != nil { panic(err) }
 
-  for _, formula := range collector.formulae {
+  for _, formula := range collector.Formulae {
     for _, item := range homebrewMetrics.Items {
       if (item.Formula == formula) {
-        value, err := strconv.ParseFloat(item.Count, 32)
+        countString := strings.Replace(item.Count, ",", "", -1)
+        count, err := strconv.ParseFloat(countString, 32)
         if err != nil { panic(err) }
-        m := prometheus.MustNewConstMetric(metric, prometheus.GaugeValue, value, item.Formula)
+        m := prometheus.MustNewConstMetric(metric, prometheus.GaugeValue, count, item.Formula)
         m = prometheus.NewMetricWithTimestamp(endDate, m)
         ch <- m
       }
@@ -160,7 +160,7 @@ func homebrewExporter(listenPort string, metricsPath string, formulae []string) 
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         w.Write([]byte(`
             <html>
-            <head><title>Homebrew Exporter Metrics</title></head>
+            <head><title>Homebrew Metrics Exporter</title></head>
             <body>
             <h1>Homebrew Exporter</h1>
             <p><a href='` + metricsPath + `'>Metrics</a></p>
