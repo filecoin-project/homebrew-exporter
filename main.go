@@ -25,10 +25,26 @@ type HomebrewMetricsItem struct {
 type HomebrewMetrics struct {
 	Category   string                `json:"category"`
 	TotalItems int                   `json:"total_items"`
-	StartDate  string                `json:"start_date"`
-	EndDate    string                `json:"end_date"`
+	StartDate  HomebrewDate          `json:"start_date"`
+	EndDate    HomebrewDate          `json:"end_date"`
 	TotalCount int                   `json:"total_count"`
 	Items      []HomebrewMetricsItem `json:"items"`
+}
+
+type HomebrewDate time.Time
+
+func (date *HomebrewDate) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), "\"")
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return err
+	}
+	*date = HomebrewDate(t)
+	return nil
+}
+
+func (date HomebrewDate) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Time(date))
 }
 
 type HomebrewCollector struct {
@@ -100,7 +116,7 @@ func (collector *HomebrewCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- collector.buildError365d
 }
 
-func (collector *HomebrewCollector) collectMetric(url string, metric *prometheus.Desc, ch chan<- prometheus.Metric) {
+func getHomebrewMetrics(url string) HomebrewMetrics {
 	client := http.Client{}
 	homebrewMetrics := HomebrewMetrics{}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -116,12 +132,11 @@ func (collector *HomebrewCollector) collectMetric(url string, metric *prometheus
 		panic(err)
 	}
 	json.Unmarshal(body, &homebrewMetrics)
-	layout := "2006-01-02"
-	endDate, err := time.Parse(layout, homebrewMetrics.EndDate)
-	if err != nil {
-		panic(err)
-	}
+	return homebrewMetrics
+}
 
+func (collector *HomebrewCollector) collectMetric(url string, metric *prometheus.Desc, ch chan<- prometheus.Metric) {
+	homebrewMetrics := getHomebrewMetrics(url)
 	for _, formula := range collector.Formulae {
 		for _, item := range homebrewMetrics.Items {
 			if item.Formula == formula {
@@ -131,7 +146,7 @@ func (collector *HomebrewCollector) collectMetric(url string, metric *prometheus
 					panic(err)
 				}
 				m := prometheus.MustNewConstMetric(metric, prometheus.GaugeValue, count, item.Formula)
-				m = prometheus.NewMetricWithTimestamp(endDate, m)
+				m = prometheus.NewMetricWithTimestamp(time.Time(homebrewMetrics.EndDate), m)
 				ch <- m
 			}
 		}
