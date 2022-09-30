@@ -137,9 +137,11 @@ func getHomebrewMetrics(url string) HomebrewMetrics {
 
 func (collector *HomebrewCollector) collectMetric(url string, metric *prometheus.Desc, ch chan<- prometheus.Metric) {
 	homebrewMetrics := getHomebrewMetrics(url)
+	fmt.Printf("Started collecting metrics from %s \n", url)
 	for _, formula := range collector.Formulae {
 		for _, item := range homebrewMetrics.Items {
 			if item.Formula == formula {
+				fmt.Printf("Found formula %s in %s \n", formula, url)
 				countString := strings.Replace(item.Count, ",", "", -1)
 				count, err := strconv.ParseFloat(countString, 32)
 				if err != nil {
@@ -151,6 +153,7 @@ func (collector *HomebrewCollector) collectMetric(url string, metric *prometheus
 			}
 		}
 	}
+	fmt.Printf("Finished collecting metrics from %s \n", url)
 }
 
 func (collector *HomebrewCollector) Collect(ch chan<- prometheus.Metric) {
