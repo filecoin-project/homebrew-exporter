@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -25,26 +24,10 @@ type HomebrewMetricsItem struct {
 type HomebrewMetrics struct {
 	Category   string                `json:"category"`
 	TotalItems int                   `json:"total_items"`
-	StartDate  HomebrewDate          `json:"start_date"`
-	EndDate    HomebrewDate          `json:"end_date"`
+	StartDate  string                `json:"start_date"`
+	EndDate    string                `json:"end_date"`
 	TotalCount int                   `json:"total_count"`
 	Items      []HomebrewMetricsItem `json:"items"`
-}
-
-type HomebrewDate time.Time
-
-func (date *HomebrewDate) UnmarshalJSON(b []byte) error {
-	s := strings.Trim(string(b), "\"")
-	t, err := time.Parse("2006-01-02", s)
-	if err != nil {
-		return err
-	}
-	*date = HomebrewDate(t)
-	return nil
-}
-
-func (date HomebrewDate) MarshalJSON() ([]byte, error) {
-	return json.Marshal(time.Time(date))
 }
 
 type HomebrewCollector struct {
@@ -65,39 +48,39 @@ func newHomebrewCollector(formulae []string) *HomebrewCollector {
 		Formulae: formulae,
 		install30d: prometheus.NewDesc("homebrew_install_30d",
 			"Results from https://formulae.brew.sh/api/analytics/install/30d.json",
-			[]string{"formula"}, nil,
+			[]string{"formula", "date"}, nil,
 		),
 		install90d: prometheus.NewDesc("homebrew_install_90d",
 			"Results from https://formulae.brew.sh/api/analytics/install/90d.json",
-			[]string{"formula"}, nil,
+			[]string{"formula", "date"}, nil,
 		),
 		install365d: prometheus.NewDesc("homebrew_install_365d",
 			"Results from https://formulae.brew.sh/api/analytics/install/365d.json",
-			[]string{"formula"}, nil,
+			[]string{"formula", "date"}, nil,
 		),
 		installOnRequest30d: prometheus.NewDesc("homebrew_install_on_request_30d",
 			"Results from https://formulae.brew.sh/api/analytics/install-on-request/30d.json",
-			[]string{"formula"}, nil,
+			[]string{"formula", "date"}, nil,
 		),
 		installOnRequest90d: prometheus.NewDesc("homebrew_install_on_request_90d",
 			"Results from https://formulae.brew.sh/api/analytics/install-on-request/90d.json",
-			[]string{"formula"}, nil,
+			[]string{"formula", "date"}, nil,
 		),
 		installOnRequest365d: prometheus.NewDesc("homebrew_install_on_request_365d",
 			"Results from https://formulae.brew.sh/api/analytics/install-on-request/365d.json",
-			[]string{"formula"}, nil,
+			[]string{"formula", "date"}, nil,
 		),
 		buildError30d: prometheus.NewDesc("homebrew_build_error_30d",
 			"Results from https://formulae.brew.sh/api/analytics/build-error/30d.json",
-			[]string{"formula"}, nil,
+			[]string{"formula", "date"}, nil,
 		),
 		buildError90d: prometheus.NewDesc("homebrew_build_error_90d",
 			"Results from https://formulae.brew.sh/api/analytics/build-error/90d.json",
-			[]string{"formula"}, nil,
+			[]string{"formula", "date"}, nil,
 		),
 		buildError365d: prometheus.NewDesc("homebrew_build_error_365d",
 			"Results from https://formulae.brew.sh/api/analytics/build-error/365d.json",
-			[]string{"formula"}, nil,
+			[]string{"formula", "date"}, nil,
 		),
 	}
 }
@@ -147,8 +130,7 @@ func (collector *HomebrewCollector) collectMetric(url string, metric *prometheus
 				if err != nil {
 					panic(err)
 				}
-				m := prometheus.MustNewConstMetric(metric, prometheus.GaugeValue, count, item.Formula)
-				m = prometheus.NewMetricWithTimestamp(time.Time(homebrewMetrics.EndDate), m)
+				m := prometheus.MustNewConstMetric(metric, prometheus.GaugeValue, count, item.Formula, homebrewMetrics.EndDate)
 				ch <- m
 			}
 		}
