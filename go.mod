@@ -1,6 +1,6 @@
 module github.com/filecoin-project/homebrew-exporter
 
-go 1.21
+go 1.22
 
 require github.com/prometheus/client_golang v1.13.0 // direct
 
